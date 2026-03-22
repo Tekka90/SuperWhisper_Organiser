@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Knowledge Base - SuperWhisper Organiser</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-brand">
+            <h1>🎙️ SuperWhisper Organiser</h1>
+        </div>
+        <div class="nav-links">
+            <a href="/">Dashboard</a>
+            <a href="/history">History</a>
+            <a href="/notes-viewer">Notes</a>
+            <a href="/knowledge" class="active">Knowledge Base</a>
+        </div>
+    </nav>
+
+    <div class="container">
+        <div class="page-header">
+            <div>
+                <h1>📚 Knowledge Base</h1>
+                <p>Learned patterns and entities from your meeting notes</p>
+            </div>
+            <button id="refresh-kb-btn" class="btn btn-primary" style="margin-left: auto;">🔄 Refresh</button>
+        </div>
+
+        <!-- Summary Cards -->
+        <div class="stats-grid">
+            <div class="stat-card">
+                <h3>👥 People</h3>
+                <p class="stat-value" id="kb-people">-</p>
+                <p class="stat-label">known individuals</p>
+            </div>
+            <div class="stat-card">
+                <h3>📋 Projects</h3>
+                <p class="stat-value" id="kb-projects">-</p>
+                <p class="stat-label">active projects</p>
+            </div>
+            <div class="stat-card">
+                <h3>🔤 Name Corrections</h3>
+                <p class="stat-value" id="kb-corrections">-</p>
+                <p class="stat-label">learned patterns</p>
+            </div>
+            <div class="stat-card">
+                <h3>🤝 1-on-1s</h3>
+                <p class="stat-value" id="kb-one-on-ones">-</p>
+                <p class="stat-label">recurring meetings</p>
+            </div>
+        </div>
+
+        <!-- Tabs -->
+        <div class="card">
+            <div class="tabs">
+                <button class="tab-btn active" data-tab="people">People</button>
+                <button class="tab-btn" data-tab="projects">Projects</button>
+                <button class="tab-btn" data-tab="corrections">Name Corrections</button>
+                <button class="tab-btn" data-tab="patterns">Meeting Patterns</button>
+            </div>
+
+            <div class="tab-content">
+                <!-- People Tab -->
+                <div id="people-tab" class="tab-pane active">
+                    <h3>Known People</h3>
+                    <div id="people-list" class="knowledge-list">
+                        <div class="loading">Loading people...</div>
+                    </div>
+                </div>
+
+                <!-- Projects Tab -->
+                <div id="projects-tab" class="tab-pane">
+                    <h3>Known Projects</h3>
+                    <div id="projects-list" class="knowledge-list">
+                        <div class="loading">Loading projects...</div>
+                    </div>
+                </div>
+
+                <!-- Name Corrections Tab -->
+                <div id="corrections-tab" class="tab-pane">
+                    <h3>Name Corrections</h3>
+                    <p class="help-text">These are learned corrections from transcript errors you've fixed in notes.</p>
+                    <div id="corrections-list" class="knowledge-list">
+                        <div class="loading">Loading corrections...</div>
+                    </div>
+                </div>
+
+                <!-- Meeting Patterns Tab -->
+                <div id="patterns-tab" class="tab-pane">
+                    <h3>Meeting Patterns</h3>
+                    <div id="patterns-list" class="knowledge-list">
+                        <div class="loading">Loading patterns...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Learning Context -->
+        <div class="card">
+            <h2>AI Learning Context</h2>
+            <p>This is the context provided to the AI when processing new recordings:</p>
+            <pre id="learning-context" class="code-block">Loading context...</pre>
+        </div>
+    </div>
+
+    <!-- Name Merge Modal -->
+    <div id="merge-names-modal" class="modal">
+        <div class="modal-content">
+            <h3>Merge Names</h3>
+            <p id="merge-names-message"></p>
+            <p class="help-text">This will update all note files and merge the usage counts.</p>
+            <div class="modal-buttons">
+                <button id="merge-keep-first-btn" class="btn btn-primary"></button>
+                <button id="merge-keep-second-btn" class="btn btn-primary"></button>
+                <button id="merge-cancel-btn" class="btn btn-secondary">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Name Correction Modal -->
+    <div id="correct-name-modal" class="modal">
+        <div class="modal-content">
+            <h3>Correct Name</h3>
+            <p id="correct-name-message"></p>
+            <p class="help-text">This will update all note files containing this name.</p>
+            <div style="margin: 1rem 0;">
+                <label for="correct-name-input" style="display: block; margin-bottom: 0.5rem; font-weight: bold;">New Name:</label>
+                <input type="text" id="correct-name-input" placeholder="Enter correct name" style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 4px; font-size: 1rem;">
+            </div>
+            <div class="modal-buttons">
+                <button id="correct-name-apply-btn" class="btn btn-primary">Apply Correction</button>
+                <button id="correct-name-cancel-btn" class="btn btn-secondary">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Progress Indicator -->
+    <div id="correction-progress" class="modal" style="display: none;">
+        <div class="modal-content" style="text-align: center;">
+            <div class="spinner" style="margin: 0 auto 1rem;"></div>
+            <p id="correction-progress-message">Processing...</p>
+        </div>
+    </div>
+
+    <script src="/static/js/knowledge.js"></script>
+</body>
+</html>

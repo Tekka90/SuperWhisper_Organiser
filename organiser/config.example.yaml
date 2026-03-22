@@ -1,0 +1,113 @@
+# SuperWhisper Organiser Configuration
+# Copy this file to config.yaml and customize for your setup
+
+# Paths
+paths:
+  # Path to SuperWhisper recordings folder
+  recordings: "~/Documents/superwhisper/recordings"
+  
+  # Where to save organized meeting notes
+  notes_output: "~/Documents/superwhisper/SuperWhisper Organiser/notes"
+  
+  # Database file to track processed recordings
+  database: "~/Documents/superwhisper/SuperWhisper Organiser/processed_recordings.db"
+
+# OpenAI Configuration
+openai:
+  # Your OpenAI API key (can also use environment variable OPENAI_API_KEY)
+  api_key: "${OPENAI_API_KEY}"
+  
+  # API endpoint (use OpenAI or local endpoint like LM Studio)
+  # OpenAI: https://api.openai.com/v1
+  # Local: http://localhost:1234/v1  (use http for local endpoints without SSL)
+  # Note: SSL verification is automatically disabled for local IPs (localhost, 127.0.0.1, 10.*, 192.168.*)
+  base_url: "https://api.openai.com/v1"
+  
+  # Model to use for analysis
+  # OpenAI: gpt-4, gpt-4-turbo-preview, gpt-3.5-turbo
+  # Local: depends on your model
+  model: "gpt-4-turbo-preview"
+  
+  # Temperature for generation (0.0 = deterministic, 1.0 = creative)
+  temperature: 0.3
+  
+  # Maximum tokens for response
+  max_tokens: 2000
+
+# Monitoring Configuration
+monitoring:
+  # How often to check for new recordings (seconds)
+  poll_interval: 10
+  
+  # Only process recordings with this mode name
+  target_mode: "Meeting"
+  
+  # Wait time to ensure file is complete (seconds)
+  stability_wait: 5
+  
+  # Process recordings on startup
+  process_on_startup: true
+
+# Web Server Configuration
+web:
+  # Host to bind to
+  # 0.0.0.0 = all network interfaces (accessible from other devices)
+  # 127.0.0.1 = localhost only (only accessible from this computer)
+  host: "0.0.0.0"
+  
+  # Port for web interface
+  port: 5000
+
+# Note Organization
+organization:
+  # Template for note headers
+  note_header_template: |
+    ## {date} - {title}
+    
+    **Participants:** {participants}
+    **Duration:** {duration}
+    
+  # Date format for note headers
+  date_format: "%B %d, %Y at %H:%M"
+  
+  # Folder structure for notes
+  folders:
+    one_on_one: "1-to-1"
+    team_meeting: "team-meetings"
+    project_meeting: "project-meetings"
+    interview: "interviews"
+    workshop: "workshops"
+    general: "general"
+  
+  # Maximum notes per file before creating dated archive
+  max_notes_per_file: 50
+  
+  # Add link to original recording
+  include_recording_link: true
+
+# AI Analysis Configuration
+analysis:
+  # Prompt for meeting categorization
+  system_prompt: |
+    You are an expert meeting analyst. Analyze meeting transcripts and summaries to:
+    1. Identify the meeting type (1-on-1, team meeting, project discussion, etc.)
+    2. Extract participant names
+    3. Identify the main topics discussed
+    4. Determine if this relates to previous meetings on the same topic
+    5. Suggest an appropriate filename for the notes
+    
+    Be concise and accurate. Focus on actionable organization.
+  
+  # Context window size for matching with existing notes
+  context_window_days: 90
+
+# Logging
+logging:
+  # Log level: DEBUG, INFO, WARNING, ERROR
+  level: "INFO"
+  
+  # Log file path
+  file: "~/Documents/superwhisper/SuperWhisper Organiser/organiser.log"
+  
+  # Include timestamps in console output
+  timestamps: true

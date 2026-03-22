@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Processing History - SuperWhisper Organiser</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-brand">
+            <h1>🎙️ SuperWhisper Organiser</h1>
+        </div>
+        <div class="nav-links">
+            <a href="/">Dashboard</a>
+            <a href="/history" class="active">History</a>
+            <a href="/notes-viewer">Notes</a>
+            <a href="/knowledge">Knowledge Base</a>
+        </div>
+    </nav>
+
+    <div class="container">
+        <div class="page-header">
+            <h1>Processing History</h1>
+            <p>View all recording processing events and their outcomes</p>
+        </div>
+
+        <div class="card">
+            <div class="filter-bar">
+                <input type="text" id="search-filter" placeholder="Search by folder name..." class="search-input">
+                <select id="status-filter" class="filter-select">
+                    <option value="">All Statuses</option>
+                    <option value="completed">Completed</option>
+                    <option value="processing">Processing</option>
+                    <option value="failed">Failed</option>
+                </select>
+            </div>
+
+            <div class="history-table-container">
+                <table class="history-table">
+                    <thead>
+                        <tr>
+                            <th>Folder</th>
+                            <th>Started</th>
+                            <th>Duration</th>
+                            <th>Status</th>
+                            <th>Type</th>
+                            <th>Participants</th>
+                            <th>Note File</th>
+                        </tr>
+                    </thead>
+                    <tbody id="history-tbody">
+                        <tr>
+                            <td colspan="7" class="loading-row">Loading history...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="pagination">
+                <button id="prev-page" class="btn btn-secondary" disabled>← Previous</button>
+                <span id="page-info">Page 1</span>
+                <button id="next-page" class="btn btn-secondary">Next →</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/history.js"></script>
+</body>
+</html>

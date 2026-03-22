@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Notes Viewer - SuperWhisper Organiser</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-brand">
+            <h1>🎙️ SuperWhisper Organiser</h1>
+        </div>
+        <div class="nav-links">
+            <a href="/">Dashboard</a>
+            <a href="/history">History</a>
+            <a href="/notes-viewer" class="active">Notes</a>
+            <a href="/knowledge">Knowledge Base</a>
+        </div>
+    </nav>
+
+    <div class="container">
+        <div class="notes-layout">
+            <!-- File Browser Sidebar -->
+            <div class="notes-sidebar">
+                <div class="sidebar-header">
+                    <h2>📁 Notes</h2>
+                    <button id="refresh-tree-btn" class="btn-icon" title="Refresh">🔄</button>
+                </div>
+                <div class="search-box">
+                    <input type="text" id="note-search" placeholder="Search notes..." class="search-input">
+                </div>
+                <div id="notes-tree" class="notes-tree">
+                    <div class="tree-loading">Loading notes...</div>
+                </div>
+            </div>
+
+            <!-- Note Viewer/Editor -->
+            <div class="notes-content">
+                <div class="note-header">
+                    <h2 id="note-title">Select a note to view</h2>
+                    <div class="note-actions">
+                        <button id="detect-names-btn" class="btn btn-secondary" disabled>Detect Names</button>
+                        <button id="unmerge-btn" class="btn btn-secondary" disabled>Extract Meeting</button>
+                        <button id="rename-btn" class="btn btn-secondary" disabled>Rename</button>
+                        <button id="delete-btn" class="btn btn-danger" disabled>Delete</button>
+                        <button id="edit-btn" class="btn btn-secondary" disabled>Edit</button>
+                        <button id="save-btn" class="btn btn-primary" style="display: none;">Save</button>
+                        <button id="cancel-btn" class="btn btn-secondary" style="display: none;">Cancel</button>
+                    </div>
+                </div>
+
+                <div class="note-meta" id="note-meta" style="display: none;">
+                    <span class="meta-item">📅 Modified: <span id="note-modified">-</span></span>
+                    <span class="meta-item">📊 Size: <span id="note-size">-</span></span>
+                </div>
+
+                <div id="note-viewer" class="note-viewer">
+                    <div class="empty-state">
+                        <p>👈 Select a note from the sidebar to view or edit</p>
+                    </div>
+                </div>
+
+                <textarea id="note-editor" class="note-editor" style="display: none;"></textarea>
+
+                <div id="save-status" class="save-status"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- AI Progress Indicator -->
+    <div id="ai-progress" class="ai-progress" style="display: none;">
+        <div class="progress-spinner"></div>
+        <div class="progress-message" id="progress-message">Processing...</div>
+    </div>
+
+    <!-- Merge Dialog Modal -->
+    <div id="merge-modal" class="modal">
+        <div class="modal-content">
+            <h3>Merge Notes</h3>
+            <p id="merge-message"></p>
+            <div class="modal-buttons">
+                <button id="merge-btn-option1" class="btn btn-primary"></button>
+                <button id="merge-btn-option2" class="btn btn-primary"></button>
+                <button id="merge-btn-cancel" class="btn btn-secondary">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Extract Meeting Dialog Modal -->
+    <div id="extract-modal" class="modal">
+        <div class="modal-content wide">
+            <h3>Extract Meeting from File</h3>
+            <p>Select the meeting entry to extract:</p>
+            <div id="extract-list" class="extract-list"></div>
+            <div class="modal-buttons">
+                <button id="extract-btn-cancel" class="btn btn-secondary">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Name Correction Dialog Modal -->
+    <div id="name-correction-modal" class="modal">
+        <div class="modal-content">
+            <h3>Correct Name</h3>
+            <p>Current name: <strong id="current-name-display"></strong></p>
+            <div class="form-group">
+                <label for="corrected-name-input">Enter correct name:</label>
+                <input type="text" id="corrected-name-input" class="form-input" placeholder="Enter correct name">
+            </div>
+            <div class="modal-buttons">
+                <button id="apply-name-correction-btn" class="btn btn-primary">Apply Correction</button>
+                <button id="name-correction-cancel-btn" class="btn btn-secondary">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Markdown rendering library -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="/static/js/notes.js"></script>
+</body>
+</html>

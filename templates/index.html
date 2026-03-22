@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SuperWhisper Organiser - Dashboard</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-brand">
+            <h1>🎙️ SuperWhisper Organiser</h1>
+        </div>
+        <div class="nav-links">
+            <a href="/" class="active">Dashboard</a>
+            <a href="/history">History</a>
+            <a href="/notes-viewer">Notes</a>
+            <a href="/knowledge">Knowledge Base</a>
+        </div>
+    </nav>
+
+    <div class="container">
+        <div class="dashboard">
+            <!-- Current Status Card -->
+            <div class="card status-card">
+                <h2>Current Status</h2>
+                <div id="status-content">
+                    <div class="status-indicator">
+                        <div class="status-dot" id="status-dot"></div>
+                        <span id="status-text">Loading...</span>
+                    </div>
+                    <div class="status-details" id="status-details" style="display: none;">
+                        <p><strong>Processing:</strong> <span id="current-folder"></span></p>
+                        <p><strong>Started:</strong> <span id="started-at"></span></p>
+                        <div class="progress-bar">
+                            <div class="progress-fill" id="progress-fill"></div>
+                        </div>
+                        <p class="progress-text"><span id= "progress-percent">0</span>%</p>
+                    </div>
+                </div>
+                <button id="refresh-status" class="btn btn-secondary">Refresh Status</button>
+            </div>
+
+            <!-- Statistics Cards -->
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <h3>Total Processed</h3>
+                    <p class="stat-value" id="stat-total">-</p>
+                    <p class="stat-label">recordings</p>
+                </div>
+                <div class="stat-card">
+                    <h3>Last 7 Days</h3>
+                    <p class="stat-value" id="stat-recent">-</p>
+                    <p class="stat-label">recordings</p>
+                </div>
+                <div class="stat-card">
+                    <h3>Success Rate</h3>
+                    <p class="stat-value" id="stat-success">-</p>
+                    <p class="stat-label">%</p>
+                </div>
+            </div>
+
+            <!-- By Type Chart -->
+            <div class="card">
+                <h2>Recordings by Type</h2>
+                <div id="type-chart">
+                    <div class="chart-placeholder">Loading statistics...</div>
+                </div>
+            </div>
+
+            <!-- Recent Activity -->
+            <div class="card">
+                <h2>Recent Activity</h2>
+                <div id="recent-activity">
+                    <div class="activity-placeholder">Loading recent activity...</div>
+                </div>
+                <a href="/history" class="btn btn-link">View Full History →</a>
+            </div>
+
+            <!-- Quick Actions -->
+            <div class="card">
+                <h2>Quick Actions</h2>
+                <div class="action-buttons">
+                    <button id="scan-notes-btn" class="btn btn-primary">Scan Existing Notes</button>
+                    <button id="refresh-all-btn" class="btn btn-secondary">Refresh All Data</button>
+                </div>
+                <div id="action-result" class="action-result"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/dashboard.js"></script>
+</body>
+</html>

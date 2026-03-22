@@ -1,0 +1,21 @@
+# SuperWhisper Organiser Dependencies
+
+# Core dependencies
+watchdog==3.0.0          # File system monitoring
+pyyaml==6.0.1            # Configuration file parsing
+openai>=1.30.0           # OpenAI API client (compatible with Python 3.14)
+python-dotenv==1.0.1     # Environment variable management
+
+# Data handling
+python-dateutil==2.8.2   # Date parsing utilities
+
+# CLI and utilities
+click==8.1.7             # Command-line interface
+colorama==0.4.6          # Colored terminal output
+rich==13.7.0             # Rich text and beautiful formatting
+
+# Web application
+flask==3.0.0             # Web framework
+flask-cors==4.0.0        # Cross-origin resource sharing
+
+# Database (sqlite3 is built-in, no installation needed)
