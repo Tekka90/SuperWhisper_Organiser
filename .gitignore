@@ -48,9 +48,6 @@ config.yaml
 
 # Output
 notes/
-*.md
-!README.md
-!copilot-instructions.md
 
 # Environment
 .env

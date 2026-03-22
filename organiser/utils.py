@@ -48,7 +48,7 @@ def setup_logging(config: Dict[str, Any]) -> logging.Logger:
 def load_config(config_path: str = None) -> Dict[str, Any]:
     """Load configuration from YAML file"""
     if config_path is None:
-        config_path = Path(__file__).parent / 'config.yaml'
+        config_path = Path(__file__).parent.parent / 'config.yaml'
     else:
         config_path = Path(config_path)
     
