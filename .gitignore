@@ -49,6 +49,9 @@ config.yaml
 # Output
 notes/
 
+# Runtime (PID files)
+run/
+
 # Environment
 .env
 .env.local

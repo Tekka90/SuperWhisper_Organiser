@@ -4,17 +4,23 @@
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
-LOG_DIR="$PROJECT_DIR/logs"
-mkdir -p "$LOG_DIR"
 
-# Extract port from config.yaml if it exists
+# Read log dir and port from config.yaml if it exists
+LOG_DIR="$PROJECT_DIR/logs"
+RUN_DIR="$PROJECT_DIR/run"
 PORT=5000
 if [ -f "$PROJECT_DIR/config.yaml" ]; then
+    _RAW_LOG_DIR=$(grep -A 5 "^logging:" "$PROJECT_DIR/config.yaml" | grep "logs_dir:" | sed 's/[^:]*:[[:space:]]*//' | tr -d '"' | head -1)
+    if [ -n "$_RAW_LOG_DIR" ]; then
+        LOG_DIR="${_RAW_LOG_DIR/\~/$HOME}"
+    fi
     PORT=$(grep -A 2 "^web:" "$PROJECT_DIR/config.yaml" | grep "port:" | awk '{print $2}' | tr -d '"' | head -1)
     if [ -z "$PORT" ]; then
         PORT=5000
     fi
 fi
+mkdir -p "$LOG_DIR"
+mkdir -p "$RUN_DIR"
 
 echo "🎤 Starting SuperWhisper Organiser..."
 
@@ -59,8 +65,8 @@ WEB_PID=$!
 sleep 1
 
 # Save PIDs for stop script
-echo $WATCHER_PID > "$LOG_DIR/watcher.pid"
-echo $WEB_PID > "$LOG_DIR/web.pid"
+echo $WATCHER_PID > "$RUN_DIR/watcher.pid"
+echo $WEB_PID > "$RUN_DIR/web.pid"
 
 echo "✅ Services started!"
 echo "   Watcher PID: $WATCHER_PID"

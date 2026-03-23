@@ -3,11 +3,16 @@
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
-LOG_DIR="$PROJECT_DIR/logs"
 
-# Extract port from config.yaml if it exists
+# Read log dir and port from config.yaml if it exists
+LOG_DIR="$PROJECT_DIR/logs"
+RUN_DIR="$PROJECT_DIR/run"
 PORT=5000
 if [ -f "$PROJECT_DIR/config.yaml" ]; then
+    _RAW_LOG_DIR=$(grep -A 5 "^logging:" "$PROJECT_DIR/config.yaml" | grep "logs_dir:" | sed 's/[^:]*:[[:space:]]*//' | tr -d '"' | head -1)
+    if [ -n "$_RAW_LOG_DIR" ]; then
+        LOG_DIR="${_RAW_LOG_DIR/\~/$HOME}"
+    fi
     PORT=$(grep -A 2 "^web:" "$PROJECT_DIR/config.yaml" | grep "port:" | awk '{print $2}' | tr -d '"' | head -1)
     if [ -z "$PORT" ]; then
         PORT=5000
@@ -22,15 +27,15 @@ echo ""
 WATCHER_PIDS=""
 WEB_PIDS=""
 
-if [ -f "$LOG_DIR/watcher.pid" ]; then
-    PID=$(cat "$LOG_DIR/watcher.pid" 2>/dev/null)
+if [ -f "$RUN_DIR/watcher.pid" ]; then
+    PID=$(cat "$RUN_DIR/watcher.pid" 2>/dev/null)
     if [ -n "$PID" ] && kill -0 "$PID" 2>/dev/null; then
         WATCHER_PIDS=$PID
     fi
 fi
 
-if [ -f "$LOG_DIR/web.pid" ]; then
-    PID=$(cat "$LOG_DIR/web.pid" 2>/dev/null)
+if [ -f "$RUN_DIR/web.pid" ]; then
+    PID=$(cat "$RUN_DIR/web.pid" 2>/dev/null)
     if [ -n "$PID" ] && kill -0 "$PID" 2>/dev/null; then
         WEB_PIDS=$PID
     fi
