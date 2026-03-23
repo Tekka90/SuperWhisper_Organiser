@@ -58,10 +58,12 @@ func allNormalWindows() -> [WinInfo] {
         guard
             let owner  = w["kCGWindowOwnerName"] as? String,
             (w["kCGWindowLayer"] as? Int) == 0,
+            (w["kCGWindowIsOnscreen"] as? Bool) == true,
+            (w["kCGWindowAlpha"]     as? Double ?? 0) > 0,
             let wid    = w["kCGWindowNumber"] as? CGWindowID,
             let bounds = w["kCGWindowBounds"] as? [String: Any],
-            let width  = bounds["Width"]  as? Double, width  > 50,
-            let height = bounds["Height"] as? Double, height > 50
+            let width  = bounds["Width"]  as? Double, width  > 100,
+            let height = bounds["Height"] as? Double, height > 100
         else { return nil }
         return WinInfo(id: wid, owner: owner)
     }
