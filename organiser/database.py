@@ -648,12 +648,26 @@ class Database:
         """Update a detected name (after correction)"""
         conn = self.get_connection()
         cursor = conn.cursor()
-        
+
+        # Check if new_name already exists for this file (merge case: e.g. Stefan → Stephane
+        # when Stephane already detected). If so, DELETE the old row to avoid UNIQUE violation.
         cursor.execute('''
-            UPDATE note_detected_names
-            SET name = ?
+            SELECT 1 FROM note_detected_names
             WHERE file_path = ? AND name = ?
-        ''', (new_name, file_path, old_name))
+        ''', (file_path, new_name))
+
+        if cursor.fetchone():
+            # Target name already present — just remove the duplicate old entry
+            cursor.execute('''
+                DELETE FROM note_detected_names
+                WHERE file_path = ? AND name = ?
+            ''', (file_path, old_name))
+        else:
+            cursor.execute('''
+                UPDATE note_detected_names
+                SET name = ?
+                WHERE file_path = ? AND name = ?
+            ''', (new_name, file_path, old_name))
         
         conn.commit()
         conn.close()

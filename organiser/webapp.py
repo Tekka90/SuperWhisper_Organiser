@@ -930,30 +930,32 @@ def api_detect_names():
             }), 400
         
         # Use OpenAI to detect names
-        prompt = """Analyze this meeting transcript and extract all person names mentioned.
-Return ONLY a JSON array of unique names, nothing else.
+        dn_cfg = analyzer.config.get('analysis', {}).get('detect_names', {})
+        system_prompt = dn_cfg.get(
+            'system_prompt',
+            'You are a helpful assistant that extracts person names from meeting transcripts. Return only a JSON array of names, no other text.'
+        )
+        user_prompt_template = dn_cfg.get(
+            'user_prompt',
+            'Analyze this meeting transcript and extract all person names mentioned.\nReturn ONLY a JSON array of unique names, nothing else.\n\nExample output format:\n["John Smith", "Sarah Johnson"]\n\nTranscript:'
+        )
+        prompt = user_prompt_template.rstrip() + '\n' + content
 
-Example output format:
-["John Smith", "Sarah Johnson", "Michael Chen"]
-
-Transcript:
-""" + content
-        
         try:
             response = analyzer.client.chat.completions.create(
                 model=analyzer.model,
                 messages=[
                     {
                         "role": "system",
-                        "content": "You are a helpful assistant that extracts person names from meeting transcripts. Return only a JSON array of names, no other text."
+                        "content": system_prompt
                     },
                     {
                         "role": "user",
                         "content": prompt
                     }
                 ],
-                temperature=0.1,
-                max_tokens=500
+                temperature=dn_cfg.get('temperature', 0.1),
+                max_tokens=dn_cfg.get('max_tokens', 500)
             )
             
             result = response.choices[0].message.content.strip()

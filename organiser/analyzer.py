@@ -96,6 +96,8 @@ class MeetingAnalyzer:
         self.vision_model = vision_cfg.get('model', self.model)
         self.vision_max_screenshots = vision_cfg.get('max_screenshots', 5)
         self.vision_detail = vision_cfg.get('detail', 'low')
+        self.vision_max_tokens = vision_cfg.get('max_tokens', 500)
+        self.vision_temperature = vision_cfg.get('temperature', 0.1)
         self.user_name = config.get('monitoring', {}).get('user_name', '')
 
         logger.info(f"Initialized analyzer with model: {self.model}")
@@ -268,36 +270,32 @@ class MeetingAnalyzer:
           extra_context  : str   – any other useful details (agenda, org, etc.)
         or None if the call fails.
         """
+        prompt_template = self.config.get('vision', {}).get('prompt', '')
+        if not prompt_template:
+            # Fallback if config predates the vision.prompt key
+            prompt_template = (
+                "You are analysing screenshots taken during a video call on the computer of {user_name}.\n\n"
+                "Please extract:\n"
+                "1. The **meeting title** – from the title bar or calendar event name. Be exact.\n"
+                "2. The **full list of participant names**. Always include \"{user_name}\" since they own the machine.\n"
+                "3. Any **extra context** useful for classifying the meeting.\n\n"
+                "Respond ONLY with a JSON object:\n"
+                "{\n  \"meeting_title\": \"<title or empty>\",\n"
+                "  \"participants\": [\"Full Name 1\"],\n"
+                "  \"extra_context\": \"<context or empty>\"\n}\n"
+            )
+        user_name = self.user_name or 'the user'
+        prompt_text = prompt_template.replace('{user_name}', user_name)
         vision_prompt = [
-            {
-                "type": "text",
-                "text": f"""You are analysing screenshots taken during a video call on the computer of {self.user_name or 'the user'}.
-
-The screenshots were captured from different application windows open during the meeting:
-- **Meeting window** (e.g. Microsoft Teams): the window title bar shows the exact call name; the participant panel lists all attendees. This is the most important screenshot.
-- **Calendar** (e.g. Outlook / Apple Calendar): may show the planned event name, duration, and the full invited attendee list.
-- **Other windows** (chat, email): may give useful context about why the meeting was called.
-
-Please extract:
-1. The **meeting title** – from the Teams title bar or the calendar event name. Be exact.
-2. The **full list of participant names** – from the Teams participant panel or the calendar attendees. Use full names where visible. Always include "{self.user_name or 'the host'}" since they own the machine.
-3. Any **extra context** useful for classifying the meeting (project name, company, agenda items).
-
-Respond ONLY with a JSON object in this exact format (no markdown, no explanation):
-{{
-  "meeting_title": "<exact title or empty string if not found>",
-  "participants": ["Full Name 1", "Full Name 2"],
-  "extra_context": "<brief context string or empty string>"
-}}"""
-            }
+            {"type": "text", "text": prompt_text}
         ] + screenshot_parts
 
         try:
             response = self.client.chat.completions.create(
                 model=self.vision_model,
                 messages=[{"role": "user", "content": vision_prompt}],
-                temperature=0.1,
-                max_tokens=500
+                temperature=self.vision_temperature,
+                max_tokens=self.vision_max_tokens
             )
             raw = response.choices[0].message.content.strip()
 
@@ -375,30 +373,18 @@ Respond ONLY with a JSON object in this exact format (no markdown, no explanatio
         if learning_context:
             prompt += learning_context + "\n\n"
 
-        prompt += f"""
-## Your Task
-
-Analyze this meeting and provide the following in JSON format:
-
-{{
-  "meeting_type": "one_on_one|team_meeting|project_meeting|interview|workshop|general",
-  "participants": ["Name1", "Name2", ...],
-  "topics": ["Topic1", "Topic2", ...],
-  "suggested_filename": "filename.md",
-  "summary": "Brief summary of key points",
-  "related_meetings": ["existing-file1.md", ...],
-  "confidence": "high|medium|low"
-}}
-
-**Important:**
-- Use the confirmed participant list above as the authoritative source of names.
-  Do NOT replace them with "Speaker N" placeholders.
-- {f'The meeting title from screenshots is "{meeting_title_hint}" – use it as the basis for `suggested_filename`.' if meeting_title_hint else 'Infer the filename from the summary and participants.'}
-- {self.user_name or 'The host'} is always a participant – make sure they appear in the list.
-- For 1-on-1 meetings suggest a filename like "1-to-1 with [Other Person].md".
-- For recurring meetings, match with existing files if possible.
-- The summary should be concise (2-3 sentences).
-"""
+        filename_instruction = (
+            f'The meeting title from screenshots is "{meeting_title_hint}" – use it as the basis for `suggested_filename`.'
+            if meeting_title_hint
+            else 'Infer the filename from the summary and participants.'
+        )
+        task_template = self.config['analysis'].get('user_prompt_task', '')
+        task = (
+            task_template
+            .replace('{user_name}', self.user_name or 'The host')
+            .replace('{filename_instruction}', filename_instruction)
+        )
+        prompt += task
         return prompt
     
     def _load_screenshots(self, recording_folder: Path) -> List[dict]:
@@ -489,20 +475,24 @@ Analyze this meeting and provide the following in JSON format:
     def extract_action_items(self, text: str) -> List[str]:
         """Extract action items from text using OpenAI"""
         try:
+            ai_cfg = self.config['analysis'].get('action_items', {})
             request_params = {
                 "model": self.model,
                 "messages": [
                     {
                         "role": "system",
-                        "content": "Extract action items from meeting notes. Return as a JSON array of strings like: {\"action_items\": [\"item1\", \"item2\"]}"
+                        "content": ai_cfg.get(
+                            'system_prompt',
+                            'Extract action items from meeting notes. Return as a JSON array of strings like: {"action_items": ["item1", "item2"]}'
+                        )
                     },
                     {
                         "role": "user",
                         "content": f"Extract action items from this text:\n\n{text[:2000]}"
                     }
                 ],
-                "temperature": 0.2,
-                "max_tokens": 500
+                "temperature": ai_cfg.get('temperature', 0.2),
+                "max_tokens": ai_cfg.get('max_tokens', 500)
             }
             
             if self.use_json_mode:
@@ -555,21 +545,24 @@ Respond with JSON:
   "reason": "brief explanation"
 }}
 """
-            
+            md_cfg = self.config['analysis'].get('merge_decision', {})
             request_params = {
                 "model": self.model,
                 "messages": [
                     {
                         "role": "system",
-                        "content": "You help determine if meeting notes should be merged based on topic similarity and participants."
+                        "content": md_cfg.get(
+                            'system_prompt',
+                            'You help determine if meeting notes should be merged based on topic similarity and participants.'
+                        )
                     },
                     {
                         "role": "user",
                         "content": prompt
                     }
                 ],
-                "temperature": 0.2,
-                "max_tokens": 200
+                "temperature": md_cfg.get('temperature', 0.2),
+                "max_tokens": md_cfg.get('max_tokens', 200)
             }
             
             if self.use_json_mode:

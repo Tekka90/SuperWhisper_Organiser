@@ -32,7 +32,7 @@ openai:
   temperature: 0.3
   
   # Maximum tokens for response
-  max_tokens: 2000
+  max_tokens: 50000
 
 # Monitoring Configuration
 monitoring:
@@ -47,6 +47,9 @@ monitoring:
   
   # Process recordings on startup
   process_on_startup: true
+  
+  # Your name — always added to participant list since every meeting is on your machine
+  user_name: "Your Name"
 
 # Web Server Configuration
 web:
@@ -97,17 +100,131 @@ analysis:
     5. Suggest an appropriate filename for the notes
     
     Be concise and accurate. Focus on actionable organization.
-  
+
   # Context window size for matching with existing notes
   context_window_days: 90
+
+  # Action item extraction sub-call
+  action_items:
+    temperature: 0.2
+    max_tokens: 50000
+    system_prompt: |
+      Extract action items from meeting notes. Return as a JSON array of strings like:
+      {"action_items": ["item1", "item2"]}
+
+  # Merge-decision sub-call
+  merge_decision:
+    temperature: 0.2
+    max_tokens: 50000
+    system_prompt: |
+      You help determine if meeting notes should be merged based on topic similarity and participants.
+
+  # Name detection in notes tab ("Detect names" button)
+  detect_names:
+    temperature: 0.1
+    max_tokens: 50000
+    system_prompt: |
+      You are a helpful assistant that extracts person names from meeting transcripts.
+      Return only a JSON array of names, no other text.
+    user_prompt: |
+      Analyze this meeting transcript and extract all person names mentioned.
+      Return ONLY a JSON array of unique names, nothing else.
+
+      Example output format:
+      ["John Smith", "Sarah Johnson", "Michael Chen"]
+
+      Transcript:
+
+  # Task instructions appended to the main analysis user prompt.
+  # Placeholders replaced at runtime: {user_name}, {filename_instruction}
+  user_prompt_task: |
+    ## Your Task
+
+    Analyze this meeting and provide the following in JSON format:
+
+    {
+      "meeting_type": "one_on_one|team_meeting|project_meeting|interview|workshop|general",
+      "participants": ["Name1", "Name2", ...],
+      "topics": ["Topic1", "Topic2", ...],
+      "suggested_filename": "filename.md",
+      "summary": "Brief summary of key points",
+      "related_meetings": ["existing-file1.md", ...],
+      "confidence": "high|medium|low"
+    }
+
+    **Important:**
+    - Use the confirmed participant list above as the authoritative source of names.
+      Do NOT replace them with "Speaker N" placeholders.
+    - {filename_instruction}
+    - {user_name} is always a participant – make sure they appear in the list.
+    - For 1-on-1 meetings suggest a filename like "1-to-1 with [Other Person].md".
+    - For recurring meetings, match with existing files if possible.
+    - The summary should be concise (2-3 sentences).
 
 # Logging
 logging:
   # Log level: DEBUG, INFO, WARNING, ERROR
   level: "INFO"
   
+  # Directory for log files (separate from PID files which stay in run/)
+  logs_dir: "~/Documents/superwhisper/SuperWhisper Organiser/logs"
+  
   # Log file path
-  file: "~/Documents/superwhisper/SuperWhisper Organiser/organiser.log"
+  file: "~/Documents/superwhisper/SuperWhisper Organiser/logs/organiser.log"
   
   # Include timestamps in console output
   timestamps: true
+
+# Vision / Screenshot Analysis
+# Requires a vision-capable model (e.g. gpt-4o, qwen2-vl, llava).
+# Screenshots are taken by scripts/capture_meeting.swift during a call,
+# then analysed in a fast pre-pass before the main transcript analysis.
+vision:
+  # Enable or disable the vision pre-pass entirely
+  enabled: false
+  
+  # Model that handles image input — must support vision.
+  # Can be the same as openai.model if that model supports vision.
+  model: "gpt-4o"
+  
+  # Maximum number of screenshots sent per recording (caps token usage)
+  max_screenshots: 5
+  
+  # Image detail level sent to the API:
+  #   "low"  = fast & cheap, good for reading titles and names
+  #   "high" = slower & more tokens, better for fine detail
+  detail: "low"
+  
+  # Token budget for the vision pre-pass response.
+  # Only needs to return a small JSON object (title + names), so 500 is plenty.
+  max_tokens: 50000
+  
+  # Temperature for the vision pre-pass (low = deterministic name/title extraction)
+  temperature: 0.1
+
+  # Prompt template for the vision pre-pass.
+  # Placeholder replaced at runtime: {user_name}
+  prompt: |
+    You are analysing screenshots taken during a video call on the computer of {user_name}.
+
+    The screenshots were captured from different application windows open during the meeting:
+    - **Meeting window** (e.g. Microsoft Teams): the window title bar shows the exact call name; the participant panel lists all attendees. This is the most important screenshot.
+    - **Calendar** (e.g. Outlook / Apple Calendar): may show the planned event name, duration, and the full invited attendee list.
+    - **Other windows** (chat, email): may give useful context about why the meeting was called.
+
+    Please extract:
+    1. The **meeting title** – from the Teams title bar or the calendar event name. Be exact.
+    2. The **full list of participant names** – from the Teams participant panel or the calendar attendees. Use full names where visible. Always include "{user_name}" since they own the machine.
+    3. Any **extra context** useful for classifying the meeting (project name, company, agenda items).
+
+    Important rules for the participant list:
+    - Include each real person **exactly once**. If someone appears under multiple forms (e.g. first name only, full name, or a display name), keep the most complete version.
+    - "{user_name}" is the machine owner and may appear under a short name, a display name, or "me / you" in the UI — treat all of these as the same person and use "{user_name}" as the canonical name.
+    - Do not add duplicates, alternate spellings, or role labels as separate entries.
+
+    Respond ONLY with a JSON object in this exact format (no markdown, no explanation):
+    {
+      "meeting_title": "<exact title or empty string if not found>",
+      "participants": ["Full Name 1", "Full Name 2"],
+      "extra_context": "<brief context string or empty string>"
+    }

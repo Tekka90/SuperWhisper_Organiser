@@ -242,8 +242,16 @@ def _run_vision_only(analyzer: "MeetingAnalyzer", recording_folder: Path, meta: 
                 f"Please extract:\n"
                 f"1. The **meeting title**\n"
                 f"2. The **full list of participant names** (always include "
-                f"{analyzer.user_name or 'the host'})\n"
+                f"{analyzer.user_name or 'the host'} — they own the machine and may appear "
+                f"as a short name, display name, or 'me/you' in the UI; use "
+                f"\"{analyzer.user_name or 'the host'}\" as the canonical form)\n"
                 f"3. Any **extra context** useful for classifying the meeting\n\n"
+                f"Important: include each person exactly once. If someone appears "
+                f"under multiple forms (e.g. first name only, full name, display name), "
+                f"keep the most complete version. "
+                f"\"{analyzer.user_name or 'the host'}\" may appear in several forms in "
+                f"the UI — always use \"{analyzer.user_name or 'the host'}\" as the "
+                f"canonical name.\n\n"
                 f"Respond ONLY with JSON:\n"
                 f'{{\n'
                 f'  "meeting_title": "<exact title or empty string>",\n'
@@ -257,7 +265,9 @@ def _run_vision_only(analyzer: "MeetingAnalyzer", recording_folder: Path, meta: 
     print(f"\n  + {len(screenshot_parts)} image(s) attached (base64, not shown)")
 
     hr("CALLING VISION MODEL")
-    print(f"  Model : {analyzer.vision_model}\n")
+    print(f"  Model       : {analyzer.vision_model}")
+    print(f"  Temperature : {analyzer.vision_temperature}")
+    print(f"  Max tokens  : {analyzer.vision_max_tokens}\n")
 
     # Call the model directly, capturing the raw response
     try:
@@ -265,8 +275,8 @@ def _run_vision_only(analyzer: "MeetingAnalyzer", recording_folder: Path, meta: 
         response = analyzer.client.chat.completions.create(
             model=analyzer.vision_model,
             messages=[{"role": "user", "content": full_prompt}],
-            temperature=0.1,
-            max_tokens=500,
+            temperature=analyzer.vision_temperature,
+            max_tokens=analyzer.vision_max_tokens,
         )
         raw = response.choices[0].message.content.strip()
     except Exception as e:
