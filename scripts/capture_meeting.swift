@@ -5,9 +5,11 @@
 //
 // Usage:
 //   swift scripts/capture_meeting.swift "Microsoft Teams"
-//   swift scripts/capture_meeting.swift "Microsoft Teams" "Calendar"
+//   swift scripts/capture_meeting.swift "Microsoft Teams" "Outlook/Calendar"
 //   swift scripts/capture_meeting.swift --list
 //
+// App arguments can be plain app names or "App/WindowPattern" — the latter
+// only captures windows of that app whose title contains the given pattern.
 // No arguments -> captures the frontmost application.
 
 import CoreGraphics
@@ -45,7 +47,7 @@ func isValidCapture(at path: String) -> Bool {
 
 // MARK: - CoreGraphics window enumeration
 
-struct WinInfo { let id: CGWindowID; let owner: String }
+struct WinInfo { let id: CGWindowID; let owner: String; let name: String }
 
 func allNormalWindows() -> [WinInfo] {
     let opts: CGWindowListOption = [.optionAll, .excludeDesktopElements]
@@ -65,12 +67,48 @@ func allNormalWindows() -> [WinInfo] {
             let width  = bounds["Width"]  as? Double, width  > 100,
             let height = bounds["Height"] as? Double, height > 100
         else { return nil }
-        return WinInfo(id: wid, owner: owner)
+        let name   = w["kCGWindowName"] as? String ?? ""
+        return WinInfo(id: wid, owner: owner, name: name)
     }
 }
 
-func matchingWindowIDs(appName: String, in windows: [WinInfo]) -> [CGWindowID] {
-    windows.filter { $0.owner.lowercased().contains(appName.lowercased()) }.map { $0.id }
+// MARK: - App / window filter
+
+struct AppFilter {
+    let appPattern:    String   // matched against owner name
+    let windowPattern: String?  // if set, also matched against window name
+}
+
+/// Parse "App" or "App/WindowPattern" into an AppFilter.
+func parseFilter(_ arg: String) -> AppFilter {
+    if let slash = arg.firstIndex(of: "/") {
+        let app = String(arg[arg.startIndex ..< slash])
+        let win = String(arg[arg.index(after: slash)...])
+        return AppFilter(appPattern: app, windowPattern: win.isEmpty ? nil : win)
+    }
+    return AppFilter(appPattern: arg, windowPattern: nil)
+}
+
+/// Return all windows that match the given filter.
+func matchingWindows(filter: AppFilter, in windows: [WinInfo]) -> [WinInfo] {
+    windows.filter { w in
+        guard w.owner.lowercased().contains(filter.appPattern.lowercased()) else { return false }
+        if let wp = filter.windowPattern {
+            return w.name.lowercased().contains(wp.lowercased())
+        }
+        return true
+    }
+}
+
+/// Sanitise a string for use as a filename component (max 50 chars).
+func safeFilenameComponent(_ s: String, fallback: String) -> String {
+    let sanitised = s
+        .replacingOccurrences(of: "/", with: "-")
+        .replacingOccurrences(of: ":", with: "-")
+        .map { ($0.isLetter || $0.isNumber || $0 == "-") ? $0 : Character("_") }
+    let result = String(sanitised)
+        .trimmingCharacters(in: CharacterSet(charactersIn: "_-"))
+    return result.isEmpty ? fallback : String(result.prefix(50))
 }
 
 // MARK: - Read recordings path from config.yaml
@@ -118,9 +156,12 @@ if rawArgs.first == "--list" {
         print("No windows found. Check Screen Recording permission.")
     } else {
         let grouped = Dictionary(grouping: wins, by: { $0.owner }).sorted { $0.key < $1.key }
-        print("Visible app windows (pass any substring as argument):")
+        print("Visible app windows (pass any substring as argument, use App/Pattern to filter by window name):")
         for (owner, ws) in grouped {
             print("  \(owner)  (\(ws.count) window\(ws.count == 1 ? "" : "s"))")
+            for w in ws where !w.name.isEmpty {
+                print("    - \"\(w.name)\"")
+            }
         }
     }
     exit(0)
@@ -158,15 +199,15 @@ logInfo("Target folder: \(URL(fileURLWithPath: folder).lastPathComponent)")
 
 // MARK: - Resolve target app names
 
-let appNames: [String]
+let filters: [AppFilter]
 if rawArgs.isEmpty {
     let (_, front) = shellRun("/usr/bin/osascript", [
         "-e", "tell application \"System Events\" to get name of first process whose frontmost is true"
     ])
-    appNames = front.isEmpty ? [] : [front]
+    filters = front.isEmpty ? [] : [AppFilter(appPattern: front, windowPattern: nil)]
     logInfo("No app specified – using frontmost: \(front)")
 } else {
-    appNames = rawArgs
+    filters = rawArgs.map { parseFilter($0) }
 }
 
 // MARK: - Capture
@@ -177,25 +218,27 @@ logInfo("Total visible windows: \(allWins.count)")
 let timestamp  = shellRun("/bin/date", ["+%Y%m%d_%H%M%S"]).output
 var savedCount = 0
 
-for appName in appNames {
-    let safeApp = appName.replacingOccurrences(of: " ", with: "_")
-    let ids     = matchingWindowIDs(appName: appName, in: allWins)
+for filter in filters {
+    let safeApp = safeFilenameComponent(filter.appPattern, fallback: "app")
+    let matched = matchingWindows(filter: filter, in: allWins)
 
-    if ids.isEmpty {
-        logInfo("No windows for '\(appName)' – run with --list to see available names")
+    if matched.isEmpty {
+        let hint = filter.windowPattern.map { " with window pattern '\($0)'" } ?? ""
+        logInfo("No windows for '\(filter.appPattern)'\(hint) – run with --list to see available names")
         continue
     }
-    logInfo("Found \(ids.count) window(s) for '\(appName)'")
+    logInfo("Found \(matched.count) window(s) for '\(filter.appPattern)'\(filter.windowPattern.map { "/\($0)" } ?? "")")
 
-    for (i, wid) in ids.enumerated() {
-        let outPath = "\(folder)/screenshot_\(timestamp)_\(safeApp)_win\(i + 1).png"
+    for (i, win) in matched.enumerated() {
+        let winLabel = safeFilenameComponent(win.name, fallback: "win\(i + 1)")
+        let outPath  = "\(folder)/screenshot_\(timestamp)_\(safeApp)_\(winLabel).png"
         // -l captures the window's own compositor buffer, occlusion-proof
-        let (status, _) = shellRun("/usr/sbin/screencapture", ["-l", String(wid), outPath])
+        let (status, _) = shellRun("/usr/sbin/screencapture", ["-l", String(win.id), outPath])
         if status == 0 && isValidCapture(at: outPath) {
             savedCount += 1
             logInfo("Saved: \(URL(fileURLWithPath: outPath).lastPathComponent)")
         } else {
-            logInfo("screencapture failed for window \(wid) (exit \(status))")
+            logInfo("screencapture failed for window \(win.id) '\(win.name)' (exit \(status))")
             try? fm.removeItem(atPath: outPath)
         }
     }

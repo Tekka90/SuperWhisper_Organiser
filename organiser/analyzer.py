@@ -3,6 +3,7 @@
 OpenAI integration for analyzing meeting recordings
 """
 
+import base64
 import logging
 import json
 from typing import Dict, Any, Optional, List
@@ -88,8 +89,18 @@ class MeetingAnalyzer:
         if http_client is not None:  # Local endpoint
             self.use_json_mode = False  # Disable for local models by default
             logger.info("JSON mode disabled for local model")
-        
+
+        # Vision / screenshot support
+        vision_cfg = config.get('vision', {})
+        self.vision_enabled = vision_cfg.get('enabled', False)
+        self.vision_model = vision_cfg.get('model', self.model)
+        self.vision_max_screenshots = vision_cfg.get('max_screenshots', 5)
+        self.vision_detail = vision_cfg.get('detail', 'low')
+        self.user_name = config.get('monitoring', {}).get('user_name', '')
+
         logger.info(f"Initialized analyzer with model: {self.model}")
+        if self.vision_enabled:
+            logger.info(f"Vision enabled – using model: {self.vision_model}")
     
     def analyze_recording(
         self,
@@ -126,8 +137,22 @@ class MeetingAnalyzer:
             logger.error(f"No transcript or summary found in {recording_folder}")
             return None
         
-        # Extract participants from segments
+        # Extract participants from segments (fallback only)
         auto_participants = extract_participants_from_segments(segments)
+
+        # ── Step 2b: Vision pre-pass ──────────────────────────────────────
+        # If screenshots are available, ask the vision model first to identify
+        # the real participant names, meeting title and any extra context.
+        # This authoritative data replaces the diarisation placeholders.
+        screenshot_parts = self._load_screenshots(recording_folder)
+        vision_context = None
+        if screenshot_parts:
+            vision_context = self._extract_context_from_screenshots(screenshot_parts)
+            if vision_context:
+                logger.info(
+                    f"Vision pre-pass complete – title: '{vision_context.get('meeting_title', '')}'  "
+                    f"participants: {vision_context.get('participants', [])}"
+                )
         
         # Build context from existing notes
         existing_context = self._build_existing_context(existing_notes)
@@ -146,7 +171,7 @@ class MeetingAnalyzer:
             llm_result = self.learning_system.apply_name_corrections(llm_result)
             raw_result = self.learning_system.apply_name_corrections(raw_result)
         
-        # Create the analysis prompt
+        # Create the analysis prompt (screenshots already consumed by vision pre-pass)
         prompt = self._create_analysis_prompt(
             llm_result=llm_result,
             raw_result=raw_result,
@@ -154,13 +179,14 @@ class MeetingAnalyzer:
             duration=duration,
             recording_date=recording_date,
             existing_context=existing_context,
-            learning_context=learning_context
+            learning_context=learning_context,
+            vision_context=vision_context
         )
-        
-        # Call OpenAI
+
+        # Call OpenAI (text-only – vision was already done in the pre-pass)
         try:
             logger.info(f"Analyzing recording {recording_folder.name}...")
-            
+
             # Build request parameters
             request_params = {
                 "model": self.model,
@@ -216,15 +242,81 @@ class MeetingAnalyzer:
                 related_meetings=result.get('related_meetings', []),
                 confidence=result.get('confidence', 'medium')
             )
-            
+
+            # Guarantee the local user is always in the participant list
+            if self.user_name and self.user_name not in analysis.participants:
+                analysis.participants.insert(0, self.user_name)
+
             logger.info(f"Analysis complete: {analysis.meeting_type} - {analysis.suggested_filename}")
-            
             return analysis
             
         except Exception as e:
             logger.error(f"Error analyzing recording: {e}", exc_info=True)
             return None
     
+    def _extract_context_from_screenshots(self, screenshot_parts: List[dict]) -> Optional[dict]:
+        """First-pass vision call: extract meeting title, participants and context.
+
+        The screenshots are expected to contain:
+          - The Teams meeting window (title bar = call name, participant panel)
+          - Optionally: a calendar screenshot (planned duration, attendees)
+          - Optionally: Outlook / Teams chat context
+
+        Returns a dict with keys:
+          meeting_title  : str   – best guess at the call name
+          participants   : list  – real full names found in any screenshot
+          extra_context  : str   – any other useful details (agenda, org, etc.)
+        or None if the call fails.
+        """
+        vision_prompt = [
+            {
+                "type": "text",
+                "text": f"""You are analysing screenshots taken during a video call on the computer of {self.user_name or 'the user'}.
+
+The screenshots were captured from different application windows open during the meeting:
+- **Meeting window** (e.g. Microsoft Teams): the window title bar shows the exact call name; the participant panel lists all attendees. This is the most important screenshot.
+- **Calendar** (e.g. Outlook / Apple Calendar): may show the planned event name, duration, and the full invited attendee list.
+- **Other windows** (chat, email): may give useful context about why the meeting was called.
+
+Please extract:
+1. The **meeting title** – from the Teams title bar or the calendar event name. Be exact.
+2. The **full list of participant names** – from the Teams participant panel or the calendar attendees. Use full names where visible. Always include "{self.user_name or 'the host'}" since they own the machine.
+3. Any **extra context** useful for classifying the meeting (project name, company, agenda items).
+
+Respond ONLY with a JSON object in this exact format (no markdown, no explanation):
+{{
+  "meeting_title": "<exact title or empty string if not found>",
+  "participants": ["Full Name 1", "Full Name 2"],
+  "extra_context": "<brief context string or empty string>"
+}}"""
+            }
+        ] + screenshot_parts
+
+        try:
+            response = self.client.chat.completions.create(
+                model=self.vision_model,
+                messages=[{"role": "user", "content": vision_prompt}],
+                temperature=0.1,
+                max_tokens=500
+            )
+            raw = response.choices[0].message.content.strip()
+
+            # Strip markdown fences if present
+            import re
+            match = re.search(r'\{.*\}', raw, re.DOTALL)
+            if match:
+                raw = match.group(0)
+
+            result = json.loads(raw)
+            # Guarantee user is in list
+            if self.user_name and self.user_name not in result.get('participants', []):
+                result.setdefault('participants', []).insert(0, self.user_name)
+            return result
+
+        except Exception as e:
+            logger.warning(f"Vision pre-pass failed: {e}")
+            return None
+
     def _create_analysis_prompt(
         self,
         llm_result: str,
@@ -233,17 +325,34 @@ class MeetingAnalyzer:
         duration: int,
         recording_date: Any,
         existing_context: str,
-        learning_context: str = ""
+        learning_context: str = "",
+        vision_context: Optional[dict] = None
     ) -> str:
         """Create the prompt for meeting analysis"""
-        
+
+        # Prefer vision-extracted data over transcript diarisation
+        if vision_context:
+            confirmed_participants = vision_context.get('participants', auto_participants)
+            meeting_title_hint = vision_context.get('meeting_title', '')
+            extra_context = vision_context.get('extra_context', '')
+        else:
+            confirmed_participants = auto_participants
+            meeting_title_hint = ''
+            extra_context = ''
+
+        # Ensure user is always listed
+        if self.user_name and self.user_name not in confirmed_participants:
+            confirmed_participants = [self.user_name] + list(confirmed_participants)
+
         prompt = f"""Analyze this meeting recording and provide organization details.
 
 ## Meeting Information
 
 **Duration:** {format_duration(duration)}
 **Date:** {recording_date.isoformat() if recording_date else 'Unknown'}
-**Auto-detected speakers:** {', '.join(auto_participants) if auto_participants else 'None'}
+**Confirmed participants (from screenshots):** {', '.join(confirmed_participants) if confirmed_participants else 'Unknown'}
+{f'**Meeting title (from screenshots):** {meeting_title_hint}' if meeting_title_hint else ''}
+{f'**Additional context (from screenshots):** {extra_context}' if extra_context else ''}
 
 ## AI-Generated Summary
 
@@ -265,32 +374,103 @@ class MeetingAnalyzer:
         
         if learning_context:
             prompt += learning_context + "\n\n"
-        
-        prompt += """
+
+        prompt += f"""
 ## Your Task
 
 Analyze this meeting and provide the following in JSON format:
 
-{
+{{
   "meeting_type": "one_on_one|team_meeting|project_meeting|interview|workshop|general",
-  "participants": ["Name1", "Name2", ...],  // Extract actual names from content
-  "topics": ["Topic1", "Topic2", ...],  // Main topics discussed
-  "suggested_filename": "filename.md",  // Suggested filename (e.g., "1-to-1 with John.md")
+  "participants": ["Name1", "Name2", ...],
+  "topics": ["Topic1", "Topic2", ...],
+  "suggested_filename": "filename.md",
   "summary": "Brief summary of key points",
-  "related_meetings": ["existing-file1.md", ...],  // Which existing files this relates to
-  "confidence": "high|medium|low"  // Your confidence in the categorization
-}
+  "related_meetings": ["existing-file1.md", ...],
+  "confidence": "high|medium|low"
+}}
 
 **Important:**
-- Try to extract real participant names from the conversation, not just "Speaker 1"
-- For 1-on-1 meetings, suggest filename like "1-to-1 with [Name].md"
-- For recurring meetings, match with existing files if possible
-- Be specific with topics
-- The summary should be concise (2-3 sentences)
+- Use the confirmed participant list above as the authoritative source of names.
+  Do NOT replace them with "Speaker N" placeholders.
+- {f'The meeting title from screenshots is "{meeting_title_hint}" – use it as the basis for `suggested_filename`.' if meeting_title_hint else 'Infer the filename from the summary and participants.'}
+- {self.user_name or 'The host'} is always a participant – make sure they appear in the list.
+- For 1-on-1 meetings suggest a filename like "1-to-1 with [Other Person].md".
+- For recurring meetings, match with existing files if possible.
+- The summary should be concise (2-3 sentences).
 """
-        
         return prompt
     
+    def _load_screenshots(self, recording_folder: Path) -> List[dict]:
+        """Find and base64-encode screenshots left by capture_meeting.swift.
+
+        Returns a list of image_url content parts ready for the OpenAI API.
+        Only runs when vision is enabled in config.
+        """
+        if not self.vision_enabled:
+            return []
+
+        files: List[Path] = []
+        for pattern in ('screenshot_*.png', 'screenshot_*.jpg', 'screenshot_*.jpeg'):
+            files.extend(sorted(recording_folder.glob(pattern)))
+
+        if not files:
+            logger.debug(f"No screenshots found in {recording_folder.name}")
+            return []
+
+        # Prioritise windows whose filename suggests it is the main meeting window
+        # (capture_meeting.swift names them _win1, _win2 … in z-order).
+        files = files[:self.vision_max_screenshots]
+        logger.info(f"Found {len(files)} screenshot(s) – sending to vision model")
+
+        parts = []
+        for f in files:
+            try:
+                img_bytes = self._resize_screenshot(f)
+                data = base64.b64encode(img_bytes).decode()
+                mime = 'image/jpeg' if f.suffix.lower() in ('.jpg', '.jpeg') else 'image/png'
+                parts.append({
+                    "type": "image_url",
+                    "image_url": {
+                        "url": f"data:{mime};base64,{data}",
+                        "detail": self.vision_detail
+                    }
+                })
+            except Exception as e:
+                logger.warning(f"Could not read screenshot {f.name}: {e}")
+
+        return parts
+
+    @staticmethod
+    def _resize_screenshot(path: Path, max_side: int = 1024) -> bytes:
+        """Return the image bytes for *path*, resized so the longest side is at
+        most *max_side* pixels.  Uses Pillow; falls back to raw bytes if Pillow
+        is not available or the image cannot be opened."""
+        try:
+            from PIL import Image
+            import io
+            with Image.open(path) as img:
+                w, h = img.size
+                if max(w, h) > max_side:
+                    scale = max_side / max(w, h)
+                    new_size = (int(w * scale), int(h * scale))
+                    img = img.resize(new_size, Image.LANCZOS)
+                    logger.debug(f"{path.name}: resized {w}x{h} → {new_size[0]}x{new_size[1]}")
+                buf = io.BytesIO()
+                fmt = 'JPEG' if path.suffix.lower() in ('.jpg', '.jpeg') else 'PNG'
+                img.save(buf, format=fmt)
+                return buf.getvalue()
+        except Exception as e:
+            logger.debug(f"{path.name}: resize skipped ({e}), using raw bytes")
+            return path.read_bytes()
+
+    def _build_user_content(self, text_prompt: str, screenshot_parts: List[dict]):
+        """Return a plain string (text only) or a multimodal list (text + images)."""
+        if not screenshot_parts:
+            return text_prompt
+        # Multimodal: text block first, then one image block per screenshot
+        return [{"type": "text", "text": text_prompt}] + screenshot_parts
+
     def _build_existing_context(self, existing_notes: Optional[List[Path]]) -> str:
         """Build context string from existing note files"""
         if not existing_notes:
