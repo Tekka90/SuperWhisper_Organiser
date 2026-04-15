@@ -72,6 +72,9 @@ class MeetingAnalyzer:
             # Local endpoint - create httpx client with SSL verification disabled
             logger.info("Using local endpoint - disabling SSL verification")
             http_client = httpx.Client(verify=False)
+            self._is_local_endpoint = True
+        else:
+            self._is_local_endpoint = False
         
         # Initialize OpenAI client
         self.client = OpenAI(
@@ -99,6 +102,14 @@ class MeetingAnalyzer:
         self.vision_max_tokens = vision_cfg.get('max_tokens', 500)
         self.vision_temperature = vision_cfg.get('temperature', 0.1)
         self.user_name = config.get('monitoring', {}).get('user_name', '')
+
+        # Extra system prompt suffix for local models that don't support JSON mode
+        self._json_suffix = (
+            "\n\nIMPORTANT: You MUST respond with ONLY a valid JSON object. "
+            "Do NOT wrap it in markdown code blocks, do NOT add any text before or after the JSON. "
+            "Output raw JSON only."
+            if not self.use_json_mode else ""
+        )
 
         logger.info(f"Initialized analyzer with model: {self.model}")
         if self.vision_enabled:
@@ -190,12 +201,13 @@ class MeetingAnalyzer:
             logger.info(f"Analyzing recording {recording_folder.name}...")
 
             # Build request parameters
+            system_prompt = self.config['analysis']['system_prompt'] + self._json_suffix
             request_params = {
                 "model": self.model,
                 "messages": [
                     {
                         "role": "system",
-                        "content": self.config['analysis']['system_prompt']
+                        "content": system_prompt
                     },
                     {
                         "role": "user",
@@ -214,26 +226,15 @@ class MeetingAnalyzer:
             
             # Parse response
             content = response.choices[0].message.content
+            logger.debug("Raw LLM response (first 500 chars): %s", content[:500] if content else '<empty>')
             
             # Try to parse as JSON
             try:
                 result = json.loads(content)
             except json.JSONDecodeError:
-                # If parsing fails, try to extract JSON from the response
-                logger.warning("Response is not valid JSON, attempting to extract...")
-                # Look for JSON block in markdown code blocks
-                import re
-                json_match = re.search(r'```(?:json)?\s*({[^`]+})\s*```', content, re.DOTALL)
-                if json_match:
-                    result = json.loads(json_match.group(1))
-                else:
-                    # Try to find any JSON-like structure
-                    json_match = re.search(r'({[^{}]*(?:{[^{}]*}[^{}]*)*})', content, re.DOTALL)
-                    if json_match:
-                        result = json.loads(json_match.group(1))
-                    else:
-                        logger.error("Could not extract JSON from response")
-                        return None
+                result = self._extract_json_from_response(content)
+                if result is None:
+                    return None
             
             analysis = MeetingAnalysis(
                 meeting_type=result.get('meeting_type', 'general'),
@@ -256,6 +257,65 @@ class MeetingAnalyzer:
             logger.error(f"Error analyzing recording: {e}", exc_info=True)
             return None
     
+    @staticmethod
+    def _extract_json_from_response(content: str) -> Optional[dict]:
+        """Try to extract a JSON object from a response that isn't pure JSON.
+
+        Handles common LLM patterns:
+          - JSON wrapped in ```json ... ``` code blocks
+          - JSON preceded/followed by prose text
+          - Nested JSON objects
+        """
+        import re
+
+        if not content or not content.strip():
+            logger.error("Empty response from LLM")
+            return None
+
+        # Strip leading/trailing whitespace and try again
+        stripped = content.strip()
+        # Some models emit the JSON with leading/trailing backticks without the code fence
+        stripped = stripped.strip('`').strip()
+        try:
+            return json.loads(stripped)
+        except json.JSONDecodeError:
+            pass
+
+        logger.warning("Response is not valid JSON, attempting to extract...")
+        logger.debug("Full raw response:\n%s", content)
+
+        # 1. Look for JSON in markdown code blocks (object or array)
+        json_match = re.search(r'```(?:json)?\s*\n?\s*([{\[].*?[}\]])\s*\n?\s*```', content, re.DOTALL)
+        if json_match:
+            try:
+                return json.loads(json_match.group(1))
+            except json.JSONDecodeError:
+                pass
+
+        # 2. Find the first '{' or '[' and match to the balanced closing bracket
+        first_brace = content.find('{')
+        first_bracket = content.find('[')
+        # Pick whichever comes first (ignoring -1)
+        candidates = [(first_brace, '{', '}'), (first_bracket, '[', ']')]
+        candidates = [(pos, op, cl) for pos, op, cl in candidates if pos != -1]
+        candidates.sort(key=lambda x: x[0])
+
+        for start, open_ch, close_ch in candidates:
+            depth = 0
+            for i in range(start, len(content)):
+                if content[i] == open_ch:
+                    depth += 1
+                elif content[i] == close_ch:
+                    depth -= 1
+                    if depth == 0:
+                        try:
+                            return json.loads(content[start:i + 1])
+                        except json.JSONDecodeError:
+                            break
+
+        logger.error("Could not extract JSON from response")
+        return None
+
     def _extract_context_from_screenshots(self, screenshot_parts: List[dict]) -> Optional[dict]:
         """First-pass vision call: extract meeting title, participants and context.
 
@@ -476,15 +536,16 @@ class MeetingAnalyzer:
         """Extract action items from text using OpenAI"""
         try:
             ai_cfg = self.config['analysis'].get('action_items', {})
+            system_prompt = ai_cfg.get(
+                'system_prompt',
+                'Extract action items from meeting notes. Return as a JSON array of strings like: {"action_items": ["item1", "item2"]}'
+            ) + self._json_suffix
             request_params = {
                 "model": self.model,
                 "messages": [
                     {
                         "role": "system",
-                        "content": ai_cfg.get(
-                            'system_prompt',
-                            'Extract action items from meeting notes. Return as a JSON array of strings like: {"action_items": ["item1", "item2"]}'
-                        )
+                        "content": system_prompt
                     },
                     {
                         "role": "user",
@@ -504,12 +565,8 @@ class MeetingAnalyzer:
             try:
                 result = json.loads(content)
             except json.JSONDecodeError:
-                # Try to extract JSON from response
-                import re
-                json_match = re.search(r'{[^}]+}', content)
-                if json_match:
-                    result = json.loads(json_match.group(0))
-                else:
+                result = self._extract_json_from_response(content)
+                if result is None:
                     return []
             
             return result.get('action_items', [])
@@ -546,15 +603,16 @@ Respond with JSON:
 }}
 """
             md_cfg = self.config['analysis'].get('merge_decision', {})
+            system_prompt = md_cfg.get(
+                'system_prompt',
+                'You help determine if meeting notes should be merged based on topic similarity and participants.'
+            ) + self._json_suffix
             request_params = {
                 "model": self.model,
                 "messages": [
                     {
                         "role": "system",
-                        "content": md_cfg.get(
-                            'system_prompt',
-                            'You help determine if meeting notes should be merged based on topic similarity and participants.'
-                        )
+                        "content": system_prompt
                     },
                     {
                         "role": "user",
@@ -574,12 +632,8 @@ Respond with JSON:
             try:
                 result = json.loads(content)
             except json.JSONDecodeError:
-                # Try to extract JSON from response
-                import re
-                json_match = re.search(r'{[^}]+}', content)
-                if json_match:
-                    result = json.loads(json_match.group(0))
-                else:
+                result = self._extract_json_from_response(content)
+                if result is None:
                     # Default to merging
                     return True
             

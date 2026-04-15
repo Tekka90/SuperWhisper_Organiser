@@ -22,6 +22,20 @@ fi
 mkdir -p "$LOG_DIR"
 mkdir -p "$RUN_DIR"
 
+# Rotate shell-managed log files (keep up to 3 backups, rotate at 5MB)
+MAX_LOG_SIZE=$((5 * 1024 * 1024))
+for logfile in "$LOG_DIR"/watcher.log "$LOG_DIR"/watcher.error.log "$LOG_DIR"/web.log "$LOG_DIR"/web.error.log; do
+    if [ -f "$logfile" ]; then
+        filesize=$(stat -f%z "$logfile" 2>/dev/null || stat -c%s "$logfile" 2>/dev/null || echo 0)
+        if [ "$filesize" -gt "$MAX_LOG_SIZE" ]; then
+            [ -f "$logfile.3" ] && rm -f "$logfile.3"
+            [ -f "$logfile.2" ] && mv "$logfile.2" "$logfile.3"
+            [ -f "$logfile.1" ] && mv "$logfile.1" "$logfile.2"
+            mv "$logfile" "$logfile.1"
+        fi
+    fi
+done
+
 echo "🎤 Starting SuperWhisper Organiser..."
 
 # Check if already running

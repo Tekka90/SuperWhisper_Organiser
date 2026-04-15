@@ -394,12 +394,18 @@ class Database:
         
         now = datetime.now().isoformat()
         
-        cursor.execute('''
-            UPDATE note_files
-            SET file_path = ?,
-                last_modified = ?
-            WHERE file_path = ?
-        ''', (new_path, now, old_path))
+        # If new_path already exists (e.g. merge target already registered), just
+        # delete the old row — references in child tables will be migrated below.
+        cursor.execute('SELECT 1 FROM note_files WHERE file_path = ?', (new_path,))
+        if cursor.fetchone():
+            cursor.execute('DELETE FROM note_files WHERE file_path = ?', (old_path,))
+        else:
+            cursor.execute('''
+                UPDATE note_files
+                SET file_path = ?,
+                    last_modified = ?
+                WHERE file_path = ?
+            ''', (new_path, now, old_path))
         
         # Also update any references in note_modifications
         cursor.execute('''

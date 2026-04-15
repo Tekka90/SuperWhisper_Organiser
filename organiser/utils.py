@@ -6,6 +6,7 @@ Utility functions for SuperWhisper Organiser
 import os
 import json
 import logging
+from logging.handlers import RotatingFileHandler
 import sqlite3
 import yaml
 from pathlib import Path
@@ -30,8 +31,12 @@ def setup_logging(config: Dict[str, Any]) -> logging.Logger:
     )
     formatter = logging.Formatter(log_format)
 
-    # File handler: all messages at configured level
-    file_handler = logging.FileHandler(log_file)
+    # File handler: rotating log with configurable size and backup count
+    max_bytes = log_config.get('max_size_mb', 10) * 1024 * 1024
+    backup_count = log_config.get('backup_count', 3)
+    file_handler = RotatingFileHandler(
+        log_file, maxBytes=max_bytes, backupCount=backup_count
+    )
     file_handler.setFormatter(formatter)
 
     # Stream handler: WARNING and above only, so that INFO/DEBUG don't

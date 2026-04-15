@@ -942,26 +942,49 @@ def api_detect_names():
         prompt = user_prompt_template.rstrip() + '\n' + content
 
         try:
-            response = analyzer.client.chat.completions.create(
-                model=analyzer.model,
-                messages=[
+            request_params = {
+                "model": analyzer.model,
+                "messages": [
                     {
                         "role": "system",
-                        "content": system_prompt
+                        "content": system_prompt + analyzer._json_suffix
                     },
                     {
                         "role": "user",
                         "content": prompt
                     }
                 ],
-                temperature=dn_cfg.get('temperature', 0.1),
-                max_tokens=dn_cfg.get('max_tokens', 500)
-            )
+                "temperature": dn_cfg.get('temperature', 0.1),
+                "max_tokens": dn_cfg.get('max_tokens', 500)
+            }
+
+            if analyzer.use_json_mode:
+                request_params["response_format"] = {"type": "json_object"}
+
+            response = analyzer.client.chat.completions.create(**request_params)
             
             result = response.choices[0].message.content.strip()
+            logger.debug("Detect-names raw response: %s", result[:500] if result else '<empty>')
             
             # Parse the JSON array
-            names = json.loads(result)
+            names = None
+            try:
+                parsed = json.loads(result)
+            except json.JSONDecodeError:
+                # Try extracting JSON from wrapped response
+                parsed = analyzer._extract_json_from_response(result)
+            
+            if parsed is None:
+                raise json.JSONDecodeError("Could not extract JSON", result, 0)
+            
+            # Handle both array and object responses
+            if isinstance(parsed, list):
+                names = parsed
+            elif isinstance(parsed, dict):
+                # Model may wrap array in an object like {"names": [...]}
+                names = parsed.get('names', parsed.get('participants', []))
+            else:
+                names = []
             
             # Store detected names in database
             if file_path:
